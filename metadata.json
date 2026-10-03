@@ -1,0 +1,6 @@
+{
+  "name": "EduFit Sensor: Trivia de Burbujas Flotantes",
+  "description": "Juego interactivo de preguntas y respuestas de educación física con sensor de movimiento por cámara y burbujas flotantes.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
