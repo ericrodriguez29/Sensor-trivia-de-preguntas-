@@ -1,5 +1,5 @@
 import React from 'react';
-import { Camera, Sparkles, Activity, Trophy, Heart, Flame, ShieldCheck, Play, Video } from 'lucide-react';
+import { Camera, Sparkles, Activity, Trophy, Heart, Flame, ShieldCheck, Play, Users, Swords, Globe } from 'lucide-react';
 import { CATEGORIES } from '../data/questions';
 
 interface StartScreenProps {
@@ -8,9 +8,9 @@ interface StartScreenProps {
   onStartWithCamera: () => void;
   onStartManual: () => void;
   onOpenCalibration: () => void;
+  onOpenMultiplayer: () => void;
   isCameraSupported: boolean;
   isCamActive: boolean;
-  onToggleCameraPreview?: () => void;
 }
 
 export const StartScreen: React.FC<StartScreenProps> = ({
@@ -19,8 +19,8 @@ export const StartScreen: React.FC<StartScreenProps> = ({
   onStartWithCamera,
   onStartManual,
   onOpenCalibration,
-  isCamActive,
-  onToggleCameraPreview
+  onOpenMultiplayer,
+  isCamActive
 }) => {
   const getCategoryIcon = (iconName: string) => {
     switch (iconName) {
@@ -33,7 +33,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
   };
 
   return (
-    <div className="w-full max-w-4xl mx-auto my-auto space-y-6 animate-in fade-in zoom-in-95 duration-300">
+    <div className="w-full max-w-4xl mx-auto my-auto space-y-5 animate-in fade-in zoom-in-95 duration-300">
       
       {/* Hero Welcome Card */}
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl relative overflow-hidden">
@@ -43,57 +43,77 @@ export const StartScreen: React.FC<StartScreenProps> = ({
           <div className="space-y-2 text-center md:text-left">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-xs font-bold tracking-wider uppercase">
               <Sparkles className="w-3.5 h-3.5" />
-              <span>Cámara en Vivo & Burbujas Flotantes</span>
+              <span>Trivia Sensor en Vivo & Multijugador</span>
             </div>
             <h1 className="text-3xl sm:text-4xl font-black text-white font-display leading-none">
               EDUFIT <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-sky-300 to-rose-400">BUBBLE SENSOR</span>
             </h1>
             <p className="text-slate-300 text-xs sm:text-sm max-w-xl leading-relaxed">
-              Te verás en pantalla completa en vivo mientras las burbujas de respuesta flotan frente a ti. 
-              Mueve los brazos o el cuerpo para alcanzar y reventar la burbuja correcta en tiempo real.
+              Juega en solitario, en duelo 1 vs 1 en la misma cámara, o en salas online con amigos. 
+              Respuestas en burbujas flotantes sobre tu cámara en vivo.
             </p>
           </div>
 
           {/* Floating Bubble Demo Preview Badge */}
           <div className="w-28 h-28 shrink-0 rounded-full border-2 border-cyan-400/80 bubble-glass flex flex-col items-center justify-center text-center p-2 shadow-[0_0_35px_rgba(6,182,212,0.4)] animate-float-1 animate-wobble">
-            <span className="text-xs font-black text-cyan-300 font-display">EN VIVO</span>
-            <span className="text-[10px] text-white font-bold">Detrás de las Burbujas</span>
+            <span className="text-xs font-black text-cyan-300 font-display">MULTIJUGADOR</span>
+            <span className="text-[10px] text-white font-bold">¡Duelos en Vivo!</span>
           </div>
         </div>
 
-        {/* 3 Steps Guide */}
+        {/* 3 Game Modes Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-6 pt-6 border-t border-slate-800 text-xs">
-          <div className="bg-slate-950/60 p-3.5 rounded-2xl border border-slate-800/80 flex items-start gap-3">
-            <div className="w-7 h-7 rounded-xl bg-cyan-500/20 text-cyan-400 flex items-center justify-center font-bold text-xs shrink-0">1</div>
-            <div>
-              <strong className="text-white block font-semibold">Cámara Activa</strong>
-              <span className="text-slate-400 text-[11px]">Tu video en vivo se verá de fondo durante toda la partida.</span>
+          
+          <button
+            onClick={onStartWithCamera}
+            className="bg-slate-950/70 hover:bg-slate-950 p-4 rounded-2xl border border-slate-800/80 hover:border-cyan-500/50 transition text-left space-y-1.5 group"
+          >
+            <div className="flex items-center justify-between">
+              <div className="w-7 h-7 rounded-xl bg-cyan-500/20 text-cyan-400 flex items-center justify-center font-bold text-xs">
+                <Play className="w-3.5 h-3.5" />
+              </div>
+              <span className="text-[10px] text-cyan-400 font-mono-data font-bold">1 JUGADOR</span>
             </div>
-          </div>
+            <strong className="text-white block font-semibold text-sm">Modo Individual</strong>
+            <span className="text-slate-400 text-[11px] block leading-tight">Juega con tu cámara y supera tu propio récord.</span>
+          </button>
 
-          <div className="bg-slate-950/60 p-3.5 rounded-2xl border border-slate-800/80 flex items-start gap-3">
-            <div className="w-7 h-7 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center font-bold text-xs shrink-0">2</div>
-            <div>
-              <strong className="text-white block font-semibold">Burbujas Flotantes</strong>
-              <span className="text-slate-400 text-[11px]">Las respuestas flotan orgánicamente sobre tu imagen.</span>
+          <button
+            onClick={onOpenMultiplayer}
+            className="bg-slate-950/70 hover:bg-slate-950 p-4 rounded-2xl border border-slate-800/80 hover:border-rose-500/50 transition text-left space-y-1.5 group"
+          >
+            <div className="flex items-center justify-between">
+              <div className="w-7 h-7 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center font-bold text-xs">
+                <Swords className="w-3.5 h-3.5" />
+              </div>
+              <span className="text-[10px] text-rose-400 font-mono-data font-bold">1 VS 1 LOCAL</span>
             </div>
-          </div>
+            <strong className="text-white block font-semibold text-sm">Duelo en Misma Cámara</strong>
+            <span className="text-slate-400 text-[11px] block leading-tight">2 jugadores frente a la cámara compitiendo por reventar primero.</span>
+          </button>
 
-          <div className="bg-slate-950/60 p-3.5 rounded-2xl border border-slate-800/80 flex items-start gap-3">
-            <div className="w-7 h-7 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-xs shrink-0">3</div>
-            <div>
-              <strong className="text-white block font-semibold">Muévete y Explota</strong>
-              <span className="text-slate-400 text-[11px]">Lleva tu mano a la burbuja para seleccionarla con tu movimiento.</span>
+          <button
+            onClick={onOpenMultiplayer}
+            className="bg-slate-950/70 hover:bg-slate-950 p-4 rounded-2xl border border-slate-800/80 hover:border-emerald-500/50 transition text-left space-y-1.5 group"
+          >
+            <div className="flex items-center justify-between">
+              <div className="w-7 h-7 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-xs">
+                <Globe className="w-3.5 h-3.5" />
+              </div>
+              <span className="text-[10px] text-emerald-400 font-mono-data font-bold">ONLINE</span>
             </div>
-          </div>
+            <strong className="text-white block font-semibold text-sm">Salas Multijugador</strong>
+            <span className="text-slate-400 text-[11px] block leading-tight">Crea o únete con código de sala en tiempo real.</span>
+          </button>
+
         </div>
 
       </div>
 
       {/* Category Selection Grid */}
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xl space-y-3">
         <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2 font-display">
-          <span>Selecciona la Categoría de Trivia</span>
+          <span>Selecciona la Categoría de Preguntas</span>
         </h2>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -104,7 +124,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
                 key={cat.id}
                 onClick={() => onSelectCategory(cat.id)}
                 className={`
-                  p-4 rounded-2xl border text-left transition-all duration-200 flex flex-col justify-between space-y-2
+                  p-3.5 rounded-2xl border text-left transition-all duration-200 flex flex-col justify-between space-y-1.5
                   ${isSelected
                     ? 'bg-slate-800/90 border-cyan-400 ring-2 ring-cyan-400/30 shadow-lg shadow-cyan-500/10'
                     : 'bg-slate-950/50 border-slate-800/80 hover:bg-slate-800/50 hover:border-slate-700'
@@ -122,8 +142,8 @@ export const StartScreen: React.FC<StartScreenProps> = ({
                   )}
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-white">{cat.name}</h3>
-                  <p className="text-[11px] text-slate-400 line-clamp-2 mt-0.5">{cat.description}</p>
+                  <h3 className="text-xs sm:text-sm font-bold text-white">{cat.name}</h3>
+                  <p className="text-[10px] sm:text-[11px] text-slate-400 line-clamp-2 mt-0.5">{cat.description}</p>
                 </div>
               </button>
             );
@@ -131,34 +151,34 @@ export const StartScreen: React.FC<StartScreenProps> = ({
         </div>
       </div>
 
-      {/* Launch Action Bar */}
+      {/* Main Action Bar */}
       <div className="flex flex-col sm:flex-row gap-3 items-center">
         
-        {/* Main Camera Start */}
+        {/* Main Camera Start (Solo) */}
         <button
           onClick={onStartWithCamera}
           className="w-full sm:flex-1 bg-gradient-to-r from-cyan-500 via-blue-600 to-rose-500 hover:from-cyan-400 hover:to-rose-400 text-white font-black py-4 px-8 rounded-2xl text-base shadow-xl shadow-cyan-500/25 transition transform active:scale-98 flex items-center justify-center gap-3"
         >
           <Camera className="w-5 h-5" />
-          <span>ACTIVAR CÁMARA Y JUGAR EN VIVO</span>
+          <span>INICIAR EN SOLITARIO</span>
+        </button>
+
+        {/* Multiplayer Lobby Button */}
+        <button
+          onClick={onOpenMultiplayer}
+          className="w-full sm:w-auto bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-400 hover:to-amber-400 text-white font-bold py-4 px-6 rounded-2xl text-xs sm:text-sm shadow-xl shadow-rose-500/20 transition flex items-center justify-center gap-2"
+        >
+          <Users className="w-4 h-4" />
+          <span>Menú Multijugador</span>
         </button>
 
         {/* Calibration shortcut */}
         <button
           onClick={onOpenCalibration}
-          className="w-full sm:w-auto bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold py-4 px-6 rounded-2xl text-xs sm:text-sm border border-slate-700 transition flex items-center justify-center gap-2"
+          className="w-full sm:w-auto bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold py-4 px-5 rounded-2xl text-xs sm:text-sm border border-slate-700 transition flex items-center justify-center gap-2"
         >
           <ShieldCheck className="w-4 h-4 text-cyan-400" />
-          <span>Calibrar Burbujas</span>
-        </button>
-
-        {/* Manual Click/Touch Fallback */}
-        <button
-          onClick={onStartManual}
-          className="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white font-semibold py-4 px-5 rounded-2xl text-xs border border-slate-800 transition flex items-center justify-center gap-2"
-        >
-          <Play className="w-4 h-4" />
-          <span>Modo Sin Cámara</span>
+          <span>Calibrar</span>
         </button>
 
       </div>

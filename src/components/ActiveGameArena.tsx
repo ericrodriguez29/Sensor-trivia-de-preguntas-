@@ -1,7 +1,8 @@
 import React from 'react';
-import { Question, BubbleState, GameSettings } from '../types';
+import { Question, BubbleState, GameSettings, GameMode, OnlinePlayer, VersusPlayerState } from '../types';
 import { FloatingBubble } from './FloatingBubble';
-import { Clock, Sparkles, CheckCircle2, XCircle, Hand, Camera, FlipHorizontal, CameraOff, Activity } from 'lucide-react';
+import { MultiplayerScoreboard } from './MultiplayerScoreboard';
+import { Clock, Sparkles, CheckCircle2, XCircle, Hand, Camera, FlipHorizontal, CameraOff, Activity, Swords } from 'lucide-react';
 
 interface ActiveGameArenaProps {
   currentQuestion: Question;
@@ -12,13 +13,18 @@ interface ActiveGameArenaProps {
   bubbles: BubbleState[];
   selectedAnswerIndex: number | null;
   isAnswered: boolean;
+  gameMode: GameMode;
+  onlinePlayers?: OnlinePlayer[];
+  versusPlayers?: [VersusPlayerState, VersusPlayerState];
+  myPlayerId?: string;
+  roundWinnerMessage?: string | null;
   videoRef: React.RefObject<HTMLVideoElement | null>;
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
   isCamActive: boolean;
   settings: GameSettings;
   onToggleCamera: () => void;
   onToggleMirror: () => void;
-  onSelectOption: (index: number) => void;
+  onSelectOption: (index: number, playerSide?: 'p1' | 'p2') => void;
 }
 
 export const ActiveGameArena: React.FC<ActiveGameArenaProps> = ({
@@ -30,6 +36,11 @@ export const ActiveGameArena: React.FC<ActiveGameArenaProps> = ({
   bubbles,
   selectedAnswerIndex,
   isAnswered,
+  gameMode,
+  onlinePlayers,
+  versusPlayers,
+  myPlayerId,
+  roundWinnerMessage,
   videoRef,
   canvasRef,
   isCamActive,
@@ -45,8 +56,16 @@ export const ActiveGameArena: React.FC<ActiveGameArenaProps> = ({
   const activeDetectedBubble = bubbles.find(b => b.fillProgress > 0.05);
 
   return (
-    <div className="w-full max-w-5xl mx-auto flex flex-col gap-4 animate-in fade-in duration-200">
+    <div className="w-full max-w-5xl mx-auto flex flex-col gap-3 animate-in fade-in duration-200">
       
+      {/* Live Multiplayer Scoreboard (if in versus or online mode) */}
+      <MultiplayerScoreboard
+        gameMode={gameMode}
+        onlinePlayers={onlinePlayers}
+        versusPlayers={versusPlayers}
+        myPlayerId={myPlayerId}
+      />
+
       {/* Question Header Card */}
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-5 shadow-2xl relative overflow-hidden">
         
@@ -94,7 +113,7 @@ export const ActiveGameArena: React.FC<ActiveGameArenaProps> = ({
       </div>
 
       {/* Main Interactive Stage: Webcam Live Feed in Background + Floating Bubbles Layer in Foreground */}
-      <div className="relative w-full aspect-[4/3] sm:aspect-video max-h-[600px] bg-slate-950 rounded-3xl overflow-hidden border-2 border-slate-800 shadow-2xl">
+      <div className="relative w-full aspect-[4/3] sm:aspect-video max-h-[590px] bg-slate-950 rounded-3xl overflow-hidden border-2 border-slate-800 shadow-2xl">
         
         {/* Hidden processing canvas for motion tracking computer vision */}
         <canvas ref={canvasRef} className="hidden" />
@@ -116,7 +135,7 @@ export const ActiveGameArena: React.FC<ActiveGameArenaProps> = ({
             </div>
             <p className="text-sm sm:text-base font-bold text-white font-display">Sensor de Cámara Desactivado</p>
             <p className="text-xs text-slate-400 max-w-sm mt-1">
-              Para seleccionar respuestas usando únicamente tu movimiento físico frente a la cámara, actívala aquí:
+              Para jugar con el sensor de movimiento por cámara, actívala aquí:
             </p>
             <button
               onClick={onToggleCamera}
@@ -138,7 +157,7 @@ export const ActiveGameArena: React.FC<ActiveGameArenaProps> = ({
               {isCamActive ? (
                 <>
                   <Activity className="w-3 h-3 text-cyan-400 animate-pulse" />
-                  <span>Sensor 100% Activo</span>
+                  <span>Sensor Activo</span>
                   {activeDetectedBubble && (
                     <span className="text-cyan-300 ml-1 bg-cyan-500/20 px-2 py-0.2 rounded-md border border-cyan-500/30">
                       Burbuja [{activeDetectedBubble.letter}] ({Math.round(activeDetectedBubble.fillProgress * 100)}%)
@@ -176,11 +195,29 @@ export const ActiveGameArena: React.FC<ActiveGameArenaProps> = ({
 
         </div>
 
+        {/* Local Versus Center Split Line Overlay (Subtle) */}
+        {gameMode === 'local_versus' && (
+          <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-0.5 border-r-2 border-dashed border-white/20 pointer-events-none z-10">
+            <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 bg-slate-950/80 px-2 py-1 rounded-full border border-slate-700 text-[10px] font-bold text-slate-300">
+              VS
+            </div>
+          </div>
+        )}
+
         {/* Motion Sensor Guide Tooltip Banner */}
         {!isAnswered && isCamActive && (
           <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-slate-950/90 backdrop-blur-md px-4 py-2 rounded-full border border-cyan-500/40 text-xs text-cyan-300 font-semibold pointer-events-none shadow-xl">
-            <Hand className="w-4 h-4 text-cyan-400 animate-bounce" />
-            <span>Mueve tu mano hacia una burbuja para reventarla con tu movimiento</span>
+            {gameMode === 'local_versus' ? (
+              <>
+                <Swords className="w-4 h-4 text-rose-400 animate-bounce" />
+                <span>¡El primero en reventar la burbuja correcta gana la ronda!</span>
+              </>
+            ) : (
+              <>
+                <Hand className="w-4 h-4 text-cyan-400 animate-bounce" />
+                <span>Mueve tu mano hacia una burbuja para reventarla con tu movimiento</span>
+              </>
+            )}
           </div>
         )}
 
@@ -202,7 +239,7 @@ export const ActiveGameArena: React.FC<ActiveGameArenaProps> = ({
                 isCorrectOption={isCorrectOption}
                 isGameLocked={isAnswered}
                 isCamActive={isCamActive}
-                onPop={onSelectOption}
+                onPop={(optIdx) => onSelectOption(optIdx)}
               />
             );
           })}
@@ -227,7 +264,7 @@ export const ActiveGameArena: React.FC<ActiveGameArenaProps> = ({
                   <span className={`text-xs font-black font-display tracking-wide uppercase ${
                     selectedAnswerIndex === currentQuestion.correctIndex ? 'text-emerald-400' : 'text-rose-400'
                   }`}>
-                    {selectedAnswerIndex === currentQuestion.correctIndex ? '¡Respuesta Correcta! (+100 pts)' : '¡Respuesta Incorrecta!'}
+                    {roundWinnerMessage || (selectedAnswerIndex === currentQuestion.correctIndex ? '¡Respuesta Correcta! (+100 pts)' : '¡Respuesta Incorrecta!')}
                   </span>
                 </div>
                 <p className="text-xs sm:text-sm text-slate-200 leading-relaxed font-medium">

@@ -3,12 +3,16 @@ import confetti from 'canvas-confetti';
 import { Header } from './components/Header';
 import { StartScreen } from './components/StartScreen';
 import { ActiveGameArena } from './components/ActiveGameArena';
+import { SplitScreenVersusArena } from './components/SplitScreenVersusArena';
 import { GameOverModal } from './components/GameOverModal';
 import { SettingsModal } from './components/SettingsModal';
 import { CalibrationModal } from './components/CalibrationModal';
-import { Question, BubbleState, GameSettings, UserStats } from './types';
+import { MultiplayerLobbyModal } from './components/MultiplayerLobbyModal';
+import { MultiplayerPodiumModal } from './components/MultiplayerPodiumModal';
+import { Question, BubbleState, GameSettings, UserStats, GameMode, OnlineRoomState, VersusPlayerState } from './types';
 import { ALL_QUESTIONS } from './data/questions';
 import { sound } from './utils/audio';
+import { mpSocket } from './utils/multiplayerSocket';
 
 const LETTERS = ['A', 'B', 'C', 'D'];
 const COLORS: Array<'rose' | 'cyan' | 'amber' | 'emerald'> = ['rose', 'cyan', 'amber', 'emerald'];
@@ -16,6 +20,7 @@ const COLORS: Array<'rose' | 'cyan' | 'amber' | 'emerald'> = ['rose', 'cyan', 'a
 export default function App() {
   // Game Flow State
   const [gameState, setGameState] = useState<'start' | 'playing' | 'gameover'>('start');
+  const [gameMode, setGameMode] = useState<GameMode>('solo');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [activeQuestions, setActiveQuestions] = useState<Question[]>([]);
   const [currentIndex, setCurrentIndex] = useState<number>(0);
@@ -24,10 +29,12 @@ export default function App() {
 
   // Answer tracking
   const [selectedAnswerIndex, setSelectedAnswerIndex] = useState<number | null>(null);
+  const [roundWinnerPlayerId, setRoundWinnerPlayerId] = useState<string | null>(null);
   const [isAnswered, setIsAnswered] = useState<boolean>(false);
   const [questionHistory, setQuestionHistory] = useState<Array<{ question: Question; userChoiceIndex: number; isCorrect: boolean }>>([]);
+  const [roundWinnerMessage, setRoundWinnerMessage] = useState<string | null>(null);
 
-  // Stats
+  // Solo Stats
   const [stats, setStats] = useState<UserStats>({
     score: 0,
     streak: 0,
@@ -37,10 +44,22 @@ export default function App() {
     timeBonusTotal: 0
   });
 
+  // Local Versus State
+  const [versusPlayers, setVersusPlayers] = useState<[VersusPlayerState, VersusPlayerState]>([
+    { id: 'p1', name: 'Jugador 1 (Azul)', color: '#06b6d4', avatar: '🔵', score: 0, streak: 0, lastAnswerIndex: null, hasAnswered: false },
+    { id: 'p2', name: 'Jugador 2 (Rojo)', color: '#f43f5e', avatar: '🔴', score: 0, streak: 0, lastAnswerIndex: null, hasAnswered: false }
+  ]);
+
+  // Online Multiplayer State
+  const [onlineRoom, setOnlineRoom] = useState<OnlineRoomState | null>(null);
+  const [myPlayerId] = useState<string>(() => 'player_' + Math.random().toString(36).substring(2, 9));
+  const [isMultiplayerModalOpen, setIsMultiplayerModalOpen] = useState<boolean>(false);
+  const [isConnecting, setIsConnecting] = useState<boolean>(false);
+
   // Settings
   const [settings, setSettings] = useState<GameSettings>({
     motionSensitivity: 28,
-    holdTimeToPop: 1.1,
+    holdTimeToPop: 0.9,
     soundEnabled: true,
     mirrorCamera: true,
     showMotionHeatmap: false,
@@ -58,8 +77,10 @@ export default function App() {
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const prevFrameRef = useRef<ImageData | null>(null);
 
-  // Floating Bubble state positions & charges
+  // Floating Bubble states (Standard for Solo/Online, and Split Screen for Local Versus)
   const [bubbles, setBubbles] = useState<BubbleState[]>([]);
+  const [p1Bubbles, setP1Bubbles] = useState<BubbleState[]>([]);
+  const [p2Bubbles, setP2Bubbles] = useState<BubbleState[]>([]);
 
   // Sound sync
   useEffect(() => {
@@ -67,24 +88,32 @@ export default function App() {
   }, [settings.soundEnabled]);
 
   // Initial questions selection helper
-  const prepareQuestions = useCallback((catId: string) => {
+  const prepareQuestions = useCallback((catId: string, seed?: number) => {
     let pool = ALL_QUESTIONS;
     if (catId !== 'all') {
       pool = ALL_QUESTIONS.filter(q => q.category === catId);
     }
-    // Shuffle pool
-    const shuffled = [...pool].sort(() => Math.random() - 0.5);
+    let shuffled = [...pool];
+    if (seed) {
+      const seededRand = (s: number) => {
+        const x = Math.sin(s++) * 10000;
+        return x - Math.floor(x);
+      };
+      let s = seed;
+      shuffled = shuffled.sort(() => seededRand(s++) - 0.5);
+    } else {
+      shuffled = shuffled.sort(() => Math.random() - 0.5);
+    }
     return shuffled.slice(0, 10);
   }, []);
 
-  // Initialize Bubbles for a question
+  // Initialize Bubbles for Solo / Online
   const initializeBubblesForQuestion = useCallback((q: Question) => {
-    // 4 Spatial Bubble Positions well-spread across outer corners (leaving center open for user body)
     const positions = [
-      { x: 18, y: 25, anim: 'animate-float-1' }, // Top-Left (A)
-      { x: 82, y: 25, anim: 'animate-float-2' }, // Top-Right (B)
-      { x: 18, y: 75, anim: 'animate-float-3' }, // Bottom-Left (C)
-      { x: 82, y: 75, anim: 'animate-float-4' }  // Bottom-Right (D)
+      { x: 18, y: 25, anim: 'animate-float-1' },
+      { x: 82, y: 25, anim: 'animate-float-2' },
+      { x: 18, y: 75, anim: 'animate-float-3' },
+      { x: 82, y: 75, anim: 'animate-float-4' }
     ];
 
     const initialBubbles: BubbleState[] = q.options.map((optionText, idx) => ({
@@ -104,6 +133,58 @@ export default function App() {
     }));
 
     setBubbles(initialBubbles);
+  }, []);
+
+  // Initialize Bubbles for Split Screen Local Versus (Separate Left & Right Viewports)
+  const initializeVersusBubblesForQuestion = useCallback((q: Question) => {
+    const p1Positions = [
+      { x: 26, y: 30, anim: 'animate-float-1' },
+      { x: 74, y: 30, anim: 'animate-float-2' },
+      { x: 26, y: 74, anim: 'animate-float-3' },
+      { x: 74, y: 74, anim: 'animate-float-4' }
+    ];
+
+    const p2Positions = [
+      { x: 26, y: 30, anim: 'animate-float-2' },
+      { x: 74, y: 30, anim: 'animate-float-1' },
+      { x: 26, y: 74, anim: 'animate-float-4' },
+      { x: 74, y: 74, anim: 'animate-float-3' }
+    ];
+
+    const b1: BubbleState[] = q.options.map((optionText, idx) => ({
+      id: idx,
+      letter: LETTERS[idx],
+      text: optionText,
+      color: COLORS[idx],
+      xPercent: p1Positions[idx].x,
+      yPercent: p1Positions[idx].y,
+      radiusPercent: 20,
+      fillProgress: 0,
+      motionIntensity: 0,
+      isHovered: false,
+      isPopped: false,
+      floatDelay: `${idx * 0.3}s`,
+      animClass: p1Positions[idx].anim
+    }));
+
+    const b2: BubbleState[] = q.options.map((optionText, idx) => ({
+      id: idx,
+      letter: LETTERS[idx],
+      text: optionText,
+      color: COLORS[idx],
+      xPercent: p2Positions[idx].x,
+      yPercent: p2Positions[idx].y,
+      radiusPercent: 20,
+      fillProgress: 0,
+      motionIntensity: 0,
+      isHovered: false,
+      isPopped: false,
+      floatDelay: `${idx * 0.3}s`,
+      animClass: p2Positions[idx].anim
+    }));
+
+    setP1Bubbles(b1);
+    setP2Bubbles(b2);
   }, []);
 
   // Request & Start Camera
@@ -154,19 +235,21 @@ export default function App() {
     }
   }, [gameState, isCamActive]);
 
-  // Start game with camera
+  // Start Solo game with camera
   const handleStartWithCamera = async () => {
+    setGameMode('solo');
     await startCamera();
     startGameplay();
   };
 
   // Start manual game without camera
   const handleStartManual = () => {
+    setGameMode('solo');
     stopCamera();
     startGameplay();
   };
 
-  // Launch the actual game rounds
+  // Launch Solo game rounds
   const startGameplay = () => {
     const qList = prepareQuestions(selectedCategory);
     setActiveQuestions(qList);
@@ -182,13 +265,117 @@ export default function App() {
     setQuestionHistory([]);
     setIsAnswered(false);
     setSelectedAnswerIndex(null);
+    setRoundWinnerMessage(null);
+    setRoundWinnerPlayerId(null);
     setTimeLeft(maxTime);
     initializeBubblesForQuestion(qList[0]);
     setGameState('playing');
   };
 
-  // Selection Handler (by touch, click, or motion completion)
-  const handleSelectOption = useCallback((optionIndex: number) => {
+  // Start Local 1 vs 1 Split Screen Versus
+  const handleStartLocalVersus = async (p1Name: string, p2Name: string) => {
+    setGameMode('local_versus');
+    setVersusPlayers([
+      { id: 'p1', name: p1Name || 'Jugador 1 (Azul)', color: '#06b6d4', avatar: '🔵', score: 0, streak: 0, lastAnswerIndex: null, hasAnswered: false },
+      { id: 'p2', name: p2Name || 'Jugador 2 (Rojo)', color: '#f43f5e', avatar: '🔴', score: 0, streak: 0, lastAnswerIndex: null, hasAnswered: false }
+    ]);
+    setIsMultiplayerModalOpen(false);
+    await startCamera();
+    const qList = prepareQuestions(selectedCategory);
+    setActiveQuestions(qList);
+    setCurrentIndex(0);
+    setIsAnswered(false);
+    setSelectedAnswerIndex(null);
+    setRoundWinnerMessage(null);
+    setRoundWinnerPlayerId(null);
+    setTimeLeft(maxTime);
+    initializeVersusBubblesForQuestion(qList[0]);
+    setGameState('playing');
+  };
+
+  // Online Multiplayer WebSocket Listeners
+  useEffect(() => {
+    const unsubscribe = mpSocket.subscribe((msg) => {
+      if (msg.type === 'ROOM_CREATED' || msg.type === 'ROOM_UPDATED') {
+        if (msg.room) {
+          setOnlineRoom(msg.room as OnlineRoomState);
+        }
+      } else if (msg.type === 'GAME_STARTED') {
+        if (msg.room) {
+          setOnlineRoom(msg.room as OnlineRoomState);
+          setGameMode('online_multiplayer');
+          setIsMultiplayerModalOpen(false);
+          const qList = prepareQuestions((msg.room as OnlineRoomState).category, msg.questionSeed as number);
+          setActiveQuestions(qList);
+          setCurrentIndex(0);
+          setIsAnswered(false);
+          setSelectedAnswerIndex(null);
+          setRoundWinnerMessage(null);
+          setRoundWinnerPlayerId(null);
+          setTimeLeft(maxTime);
+          initializeBubblesForQuestion(qList[0]);
+          startCamera();
+          setGameState('playing');
+        }
+      } else if (msg.type === 'PLAYER_ANSWERED') {
+        if (msg.room) {
+          setOnlineRoom(msg.room as OnlineRoomState);
+        }
+      } else if (msg.type === 'NEXT_QUESTION_SYNC') {
+        if (msg.room) {
+          setOnlineRoom(msg.room as OnlineRoomState);
+          const nextIdx = msg.questionIndex as number;
+          setCurrentIndex(nextIdx);
+          setIsAnswered(false);
+          setSelectedAnswerIndex(null);
+          setRoundWinnerMessage(null);
+          setRoundWinnerPlayerId(null);
+          setTimeLeft(maxTime);
+          if (activeQuestions[nextIdx]) {
+            initializeBubblesForQuestion(activeQuestions[nextIdx]);
+          }
+        }
+      } else if (msg.type === 'GAME_OVER') {
+        if (msg.room) {
+          setOnlineRoom(msg.room as OnlineRoomState);
+        }
+        setGameState('gameover');
+        sound.playStreakBonus();
+        confetti({ particleCount: 150, spread: 100, origin: { y: 0.45 } });
+      }
+    });
+
+    return () => unsubscribe();
+  }, [activeQuestions, initializeBubblesForQuestion, prepareQuestions, startCamera]);
+
+  // Create Online Room
+  const handleCreateOnlineRoom = async (name: string, avatar: string, category: string) => {
+    setIsConnecting(true);
+    await mpSocket.connect();
+    mpSocket.send('CREATE_ROOM', { name, avatar, category, playerId: myPlayerId });
+    setIsConnecting(false);
+  };
+
+  // Join Online Room
+  const handleJoinOnlineRoom = async (roomCode: string, name: string, avatar: string) => {
+    setIsConnecting(true);
+    await mpSocket.connect();
+    mpSocket.send('JOIN_ROOM', { roomCode, name, avatar, playerId: myPlayerId });
+    setIsConnecting(false);
+  };
+
+  // Host starts online game
+  const handleStartOnlineGame = () => {
+    mpSocket.send('START_GAME', { questionSeed: Date.now() });
+  };
+
+  // Update room category
+  const handleUpdateCategory = (category: string) => {
+    mpSocket.send('UPDATE_CATEGORY', { category });
+  };
+
+  // Answer Selection Handler (Unified for Solo, Local Split-Screen Versus, and Online)
+  const handleSelectOption = useCallback((optionIndex: number, playerSide?: 'p1' | 'p2') => {
     if (isAnswered || gameState !== 'playing') return;
 
     setIsAnswered(true);
@@ -201,92 +388,130 @@ export default function App() {
     const isCorrect = (optionIndex === currentQ.correctIndex);
 
     // Update Bubble states: trigger instant pop explosion on selected bubble
-    setBubbles(prev =>
-      prev.map((b, idx) => {
-        if (idx === optionIndex) {
-          return { ...b, isPopped: true, fillProgress: 1 };
-        }
-        return b;
-      })
-    );
+    if (gameMode === 'local_versus') {
+      if (playerSide === 'p1') {
+        setP1Bubbles(prev => prev.map((b, idx) => idx === optionIndex ? { ...b, isPopped: true, fillProgress: 1 } : b));
+      } else {
+        setP2Bubbles(prev => prev.map((b, idx) => idx === optionIndex ? { ...b, isPopped: true, fillProgress: 1 } : b));
+      }
+    } else {
+      setBubbles(prev => prev.map((b, idx) => idx === optionIndex ? { ...b, isPopped: true, fillProgress: 1 } : b));
+    }
 
     // Coordinate particle explosion from the specific bubble location
-    const targetBubble = bubbles[optionIndex];
-    if (targetBubble) {
-      confetti({
-        particleCount: isCorrect ? 65 : 35,
-        spread: 80,
-        startVelocity: 30,
-        origin: {
-          x: targetBubble.xPercent / 100,
-          y: targetBubble.yPercent / 100
-        },
-        colors: isCorrect
-          ? ['#10b981', '#34d399', '#ffffff', '#fbbf24', '#06b6d4']
-          : ['#f43f5e', '#fb7185', '#ffffff', '#fda4af']
-      });
-    }
+    const originX = gameMode === 'local_versus' ? (playerSide === 'p1' ? 0.25 : 0.75) : 0.5;
+    confetti({
+      particleCount: isCorrect ? 70 : 35,
+      spread: 80,
+      startVelocity: 30,
+      origin: { x: originX, y: 0.5 },
+      colors: isCorrect
+        ? (playerSide === 'p1' ? ['#06b6d4', '#38bdf8', '#ffffff', '#10b981'] : ['#f43f5e', '#fb7185', '#ffffff', '#10b981'])
+        : ['#94a3b8', '#64748b', '#ffffff']
+    });
 
-    // Update Stats & Additional Feedback Sounds
-    if (isCorrect) {
-      const timeBonus = timeLeft * 10;
-      const streakBonus = stats.streak * 25;
-      const pointsEarned = 100 + timeBonus + streakBonus;
+    const timeBonus = timeLeft * 10;
+    const pointsEarned = 100 + timeBonus;
 
-      setTimeout(() => sound.playCorrect(), 120);
+    // Mode-specific scoring
+    if (gameMode === 'solo') {
+      if (isCorrect) {
+        const streakBonus = stats.streak * 25;
+        const totalPoints = pointsEarned + streakBonus;
+        setTimeout(() => sound.playCorrect(), 120);
 
-      setStats(prev => {
-        const nextStreak = prev.streak + 1;
-        return {
-          ...prev,
-          score: prev.score + pointsEarned,
-          streak: nextStreak,
-          bestStreak: Math.max(prev.bestStreak, nextStreak),
-          correctCount: prev.correctCount + 1,
-          totalAnswered: prev.totalAnswered + 1,
-          timeBonusTotal: prev.timeBonusTotal + timeBonus
-        };
-      });
-    } else {
-      setTimeout(() => sound.playWrong(), 120);
-      setStats(prev => ({
-        ...prev,
-        streak: 0,
-        totalAnswered: prev.totalAnswered + 1
-      }));
-    }
-
-    // Record question history
-    setQuestionHistory(prev => [
-      ...prev,
-      {
-        question: currentQ,
-        userChoiceIndex: optionIndex,
-        isCorrect
-      }
-    ]);
-
-    // Delay for feedback before advancing
-    setTimeout(() => {
-      if (currentIndex + 1 < activeQuestions.length) {
-        const nextIdx = currentIndex + 1;
-        setCurrentIndex(nextIdx);
-        setIsAnswered(false);
-        setSelectedAnswerIndex(null);
-        setTimeLeft(maxTime);
-        initializeBubblesForQuestion(activeQuestions[nextIdx]);
-      } else {
-        // End of Trivia game
-        setGameState('gameover');
-        sound.playStreakBonus();
-        confetti({
-          particleCount: 120,
-          spread: 90,
-          origin: { y: 0.45 }
+        setStats(prev => {
+          const nextStreak = prev.streak + 1;
+          return {
+            ...prev,
+            score: prev.score + totalPoints,
+            streak: nextStreak,
+            bestStreak: Math.max(prev.bestStreak, nextStreak),
+            correctCount: prev.correctCount + 1,
+            totalAnswered: prev.totalAnswered + 1,
+            timeBonusTotal: prev.timeBonusTotal + timeBonus
+          };
         });
+      } else {
+        setTimeout(() => sound.playWrong(), 120);
+        setStats(prev => ({
+          ...prev,
+          streak: 0,
+          totalAnswered: prev.totalAnswered + 1
+        }));
+      }
+
+      setQuestionHistory(prev => [
+        ...prev,
+        { question: currentQ, userChoiceIndex: optionIndex, isCorrect }
+      ]);
+    } else if (gameMode === 'local_versus') {
+      const winningSide = playerSide || (optionIndex % 2 === 0 ? 'p1' : 'p2');
+      if (isCorrect) {
+        setTimeout(() => sound.playCorrect(), 120);
+        setRoundWinnerPlayerId(winningSide);
+        setVersusPlayers(prev => {
+          const [p1, p2] = prev;
+          if (winningSide === 'p1') {
+            setRoundWinnerMessage(`¡Punto para ${p1.name}! (+${pointsEarned} pts)`);
+            return [
+              { ...p1, score: p1.score + pointsEarned, streak: p1.streak + 1 },
+              { ...p2, streak: 0 }
+            ];
+          } else {
+            setRoundWinnerMessage(`¡Punto para ${p2.name}! (+${pointsEarned} pts)`);
+            return [
+              { ...p1, streak: 0 },
+              { ...p2, score: p2.score + pointsEarned, streak: p2.streak + 1 }
+            ];
+          }
+        });
+      } else {
+        setTimeout(() => sound.playWrong(), 120);
+        setRoundWinnerPlayerId(null);
+        setRoundWinnerMessage('¡Ninguno acertó en esta ronda!');
+      }
+    } else if (gameMode === 'online_multiplayer') {
+      mpSocket.send('SUBMIT_ANSWER', {
+        optionIndex,
+        isCorrect,
+        pointsEarned: isCorrect ? pointsEarned : 0
+      });
+      if (isCorrect) {
+        setTimeout(() => sound.playCorrect(), 120);
+      } else {
+        setTimeout(() => sound.playWrong(), 120);
+      }
+    }
+
+    // Delay before advancing
+    setTimeout(() => {
+      if (gameMode === 'online_multiplayer') {
+        if (onlineRoom?.hostId === myPlayerId) {
+          mpSocket.send('NEXT_QUESTION', { totalQuestions: activeQuestions.length });
+        }
+      } else {
+        if (currentIndex + 1 < activeQuestions.length) {
+          const nextIdx = currentIndex + 1;
+          setCurrentIndex(nextIdx);
+          setIsAnswered(false);
+          setSelectedAnswerIndex(null);
+          setRoundWinnerMessage(null);
+          setRoundWinnerPlayerId(null);
+          setTimeLeft(maxTime);
+          if (gameMode === 'local_versus') {
+            initializeVersusBubblesForQuestion(activeQuestions[nextIdx]);
+          } else {
+            initializeBubblesForQuestion(activeQuestions[nextIdx]);
+          }
+        } else {
+          setGameState('gameover');
+          sound.playStreakBonus();
+          confetti({ particleCount: 160, spread: 95, origin: { y: 0.45 } });
+        }
       }
     }, 2400);
-  }, [isAnswered, gameState, activeQuestions, currentIndex, timeLeft, stats.streak, initializeBubblesForQuestion]);
+  }, [isAnswered, gameState, activeQuestions, currentIndex, timeLeft, gameMode, stats.streak, versusPlayers, onlineRoom?.hostId, myPlayerId, initializeBubblesForQuestion, initializeVersusBubblesForQuestion]);
 
   // Question Timer Countdown
   useEffect(() => {
@@ -309,7 +534,7 @@ export default function App() {
     return () => clearInterval(timer);
   }, [gameState, isAnswered, handleSelectOption]);
 
-  // Motion Detection Computer Vision Loop
+  // Motion Detection Computer Vision Loop (Supports Solo, Online, and Split-Screen Dual Tracking)
   useEffect(() => {
     if (gameState !== 'playing' || !isCamActive || isAnswered) return;
 
@@ -341,19 +566,15 @@ export default function App() {
             const h = canvas.height;
             const lastFrame = prevFrameRef.current;
 
-            setBubbles(prevBubbles => {
-              return prevBubbles.map((bubble, bIdx) => {
+            if (gameMode === 'local_versus') {
+              // DUAL SPLIT-SCREEN COMPUTER VISION TRACKING
+              // Track Player 1 on Left Half (x: 0..80)
+              setP1Bubbles(prev => prev.map((bubble, bIdx) => {
                 if (bubble.isPopped) return bubble;
-
-                // Define separated quadrants around each corner bubble
-                // Bubble 0: Top-Left (0..w*0.42, 0..h*0.46)
-                // Bubble 1: Top-Right (w*0.58..w, 0..h*0.46)
-                // Bubble 2: Bottom-Left (0..w*0.42, h*0.54..h)
-                // Bubble 3: Bottom-Right (w*0.58..w, h*0.54..h)
-                const minX = bIdx % 2 === 0 ? 0 : Math.floor(w * 0.58);
-                const maxX = bIdx % 2 === 0 ? Math.floor(w * 0.42) : w;
-                const minY = bIdx < 2 ? 0 : Math.floor(h * 0.54);
-                const maxY = bIdx < 2 ? Math.floor(h * 0.46) : h;
+                const minX = bIdx % 2 === 0 ? 0 : 40;
+                const maxX = bIdx % 2 === 0 ? 40 : 80;
+                const minY = bIdx < 2 ? 0 : 45;
+                const maxY = bIdx < 2 ? 45 : 90;
 
                 let diffPixels = 0;
                 const totalInZone = Math.max(1, (maxX - minX) * (maxY - minY));
@@ -364,7 +585,6 @@ export default function App() {
                     const rD = Math.abs(currentFrame.data[idx] - lastFrame.data[idx]);
                     const gD = Math.abs(currentFrame.data[idx + 1] - lastFrame.data[idx + 1]);
                     const bD = Math.abs(currentFrame.data[idx + 2] - lastFrame.data[idx + 2]);
-
                     if (rD + gD + bD > settings.motionSensitivity) {
                       diffPixels++;
                     }
@@ -373,38 +593,114 @@ export default function App() {
 
                 const motionRatio = (diffPixels / (totalInZone / 4)) * 100;
                 let nextProgress = bubble.fillProgress;
-                const isHovering = motionRatio > 10;
+                const isHovering = motionRatio > 11;
 
                 if (isHovering) {
-                  // Increment progress based on hold time requirement
-                  nextProgress += (0.065 / Math.max(0.4, settings.holdTimeToPop));
+                  nextProgress += (0.075 / Math.max(0.4, settings.holdTimeToPop));
                   sound.playChargeTick(nextProgress);
-
                   if (nextProgress >= 1 && !isAnswered) {
-                    // Trigger motion selection
-                    setTimeout(() => {
-                      handleSelectOption(bIdx);
-                    }, 5);
-                    return {
-                      ...bubble,
-                      fillProgress: 1,
-                      motionIntensity: motionRatio,
-                      isHovered: true
-                    };
+                    setTimeout(() => handleSelectOption(bIdx, 'p1'), 5);
+                    return { ...bubble, fillProgress: 1, motionIntensity: motionRatio, isHovered: true };
                   }
                 } else {
-                  // Decay smoothly when hand moves away
                   nextProgress = Math.max(0, nextProgress - 0.09);
                 }
 
-                return {
-                  ...bubble,
-                  fillProgress: Math.min(1, nextProgress),
-                  motionIntensity: Math.round(motionRatio),
-                  isHovered: isHovering
-                };
+                return { ...bubble, fillProgress: Math.min(1, nextProgress), motionIntensity: Math.round(motionRatio), isHovered: isHovering };
+              }));
+
+              // Track Player 2 on Right Half (x: 80..160)
+              setP2Bubbles(prev => prev.map((bubble, bIdx) => {
+                if (bubble.isPopped) return bubble;
+                const minX = bIdx % 2 === 0 ? 80 : 120;
+                const maxX = bIdx % 2 === 0 ? 120 : 160;
+                const minY = bIdx < 2 ? 0 : 45;
+                const maxY = bIdx < 2 ? 45 : 90;
+
+                let diffPixels = 0;
+                const totalInZone = Math.max(1, (maxX - minX) * (maxY - minY));
+
+                for (let y = minY; y < maxY; y += 2) {
+                  for (let x = minX; x < maxX; x += 2) {
+                    const idx = (y * w + x) * 4;
+                    const rD = Math.abs(currentFrame.data[idx] - lastFrame.data[idx]);
+                    const gD = Math.abs(currentFrame.data[idx + 1] - lastFrame.data[idx + 1]);
+                    const bD = Math.abs(currentFrame.data[idx + 2] - lastFrame.data[idx + 2]);
+                    if (rD + gD + bD > settings.motionSensitivity) {
+                      diffPixels++;
+                    }
+                  }
+                }
+
+                const motionRatio = (diffPixels / (totalInZone / 4)) * 100;
+                let nextProgress = bubble.fillProgress;
+                const isHovering = motionRatio > 11;
+
+                if (isHovering) {
+                  nextProgress += (0.075 / Math.max(0.4, settings.holdTimeToPop));
+                  sound.playChargeTick(nextProgress);
+                  if (nextProgress >= 1 && !isAnswered) {
+                    setTimeout(() => handleSelectOption(bIdx, 'p2'), 5);
+                    return { ...bubble, fillProgress: 1, motionIntensity: motionRatio, isHovered: true };
+                  }
+                } else {
+                  nextProgress = Math.max(0, nextProgress - 0.09);
+                }
+
+                return { ...bubble, fillProgress: Math.min(1, nextProgress), motionIntensity: Math.round(motionRatio), isHovered: isHovering };
+              }));
+            } else {
+              // Solo / Online standard 4-corner tracking
+              setBubbles(prevBubbles => {
+                return prevBubbles.map((bubble, bIdx) => {
+                  if (bubble.isPopped) return bubble;
+
+                  const minX = bIdx % 2 === 0 ? 0 : Math.floor(w * 0.58);
+                  const maxX = bIdx % 2 === 0 ? Math.floor(w * 0.42) : w;
+                  const minY = bIdx < 2 ? 0 : Math.floor(h * 0.54);
+                  const maxY = bIdx < 2 ? Math.floor(h * 0.46) : h;
+
+                  let diffPixels = 0;
+                  const totalInZone = Math.max(1, (maxX - minX) * (maxY - minY));
+
+                  for (let y = minY; y < maxY; y += 2) {
+                    for (let x = minX; x < maxX; x += 2) {
+                      const idx = (y * w + x) * 4;
+                      const rD = Math.abs(currentFrame.data[idx] - lastFrame.data[idx]);
+                      const gD = Math.abs(currentFrame.data[idx + 1] - lastFrame.data[idx + 1]);
+                      const bD = Math.abs(currentFrame.data[idx + 2] - lastFrame.data[idx + 2]);
+
+                      if (rD + gD + bD > settings.motionSensitivity) {
+                        diffPixels++;
+                      }
+                    }
+                  }
+
+                  const motionRatio = (diffPixels / (totalInZone / 4)) * 100;
+                  let nextProgress = bubble.fillProgress;
+                  const isHovering = motionRatio > 10;
+
+                  if (isHovering) {
+                    nextProgress += (0.065 / Math.max(0.4, settings.holdTimeToPop));
+                    sound.playChargeTick(nextProgress);
+
+                    if (nextProgress >= 1 && !isAnswered) {
+                      setTimeout(() => handleSelectOption(bIdx), 5);
+                      return { ...bubble, fillProgress: 1, motionIntensity: motionRatio, isHovered: true };
+                    }
+                  } else {
+                    nextProgress = Math.max(0, nextProgress - 0.09);
+                  }
+
+                  return {
+                    ...bubble,
+                    fillProgress: Math.min(1, nextProgress),
+                    motionIntensity: Math.round(motionRatio),
+                    isHovered: isHovering
+                  };
+                });
               });
-            });
+            }
           }
 
           prevFrameRef.current = currentFrame;
@@ -416,10 +712,8 @@ export default function App() {
 
     animId = requestAnimationFrame(processMotion);
 
-    return () => {
-      cancelAnimationFrame(animId);
-    };
-  }, [gameState, isCamActive, isAnswered, settings.mirrorCamera, settings.motionSensitivity, settings.holdTimeToPop, handleSelectOption]);
+    return () => cancelAnimationFrame(animId);
+  }, [gameState, isCamActive, isAnswered, gameMode, settings.mirrorCamera, settings.motionSensitivity, settings.holdTimeToPop, handleSelectOption]);
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100 selection:bg-cyan-500 selection:text-white">
@@ -428,9 +722,12 @@ export default function App() {
       <Header
         stats={stats}
         soundEnabled={settings.soundEnabled}
+        gameMode={gameMode}
+        onlineRoom={onlineRoom}
         onToggleSound={() => setSettings(s => ({ ...s, soundEnabled: !s.soundEnabled }))}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenCalibration={() => setIsCalibrationOpen(true)}
+        onOpenMultiplayer={() => setIsMultiplayerModalOpen(true)}
         isCamActive={isCamActive}
       />
 
@@ -445,13 +742,14 @@ export default function App() {
             onStartWithCamera={handleStartWithCamera}
             onStartManual={handleStartManual}
             onOpenCalibration={() => setIsCalibrationOpen(true)}
+            onOpenMultiplayer={() => setIsMultiplayerModalOpen(true)}
             isCameraSupported={typeof navigator !== 'undefined' && !!navigator.mediaDevices}
             isCamActive={isCamActive}
           />
         )}
 
-        {/* ACTIVE PLAYING SCREEN */}
-        {gameState === 'playing' && activeQuestions.length > 0 && (
+        {/* ACTIVE PLAYING SCREEN (SOLO OR ONLINE) */}
+        {gameState === 'playing' && gameMode !== 'local_versus' && activeQuestions.length > 0 && (
           <ActiveGameArena
             currentQuestion={activeQuestions[currentIndex]}
             currentIndex={currentIndex}
@@ -461,6 +759,11 @@ export default function App() {
             bubbles={bubbles}
             selectedAnswerIndex={selectedAnswerIndex}
             isAnswered={isAnswered}
+            gameMode={gameMode}
+            onlinePlayers={onlineRoom?.players}
+            versusPlayers={versusPlayers}
+            myPlayerId={myPlayerId}
+            roundWinnerMessage={roundWinnerMessage}
             videoRef={videoRef}
             canvasRef={canvasRef}
             isCamActive={isCamActive}
@@ -477,8 +780,39 @@ export default function App() {
           />
         )}
 
-        {/* GAME OVER & PODIUM SCREEN */}
-        {gameState === 'gameover' && (
+        {/* ACTIVE PLAYING SCREEN (1 VS 1 SPLIT SCREEN LOCAL VERSUS) */}
+        {gameState === 'playing' && gameMode === 'local_versus' && activeQuestions.length > 0 && (
+          <SplitScreenVersusArena
+            currentQuestion={activeQuestions[currentIndex]}
+            currentIndex={currentIndex}
+            totalQuestions={activeQuestions.length}
+            timeLeft={timeLeft}
+            maxTime={maxTime}
+            p1Bubbles={p1Bubbles}
+            p2Bubbles={p2Bubbles}
+            selectedAnswerIndex={selectedAnswerIndex}
+            roundWinnerPlayerId={roundWinnerPlayerId}
+            isAnswered={isAnswered}
+            versusPlayers={versusPlayers}
+            roundWinnerMessage={roundWinnerMessage}
+            videoRef={videoRef}
+            canvasRef={canvasRef}
+            isCamActive={isCamActive}
+            settings={settings}
+            onToggleCamera={async () => {
+              if (isCamActive) {
+                stopCamera();
+              } else {
+                await startCamera();
+              }
+            }}
+            onToggleMirror={() => setSettings(s => ({ ...s, mirrorCamera: !s.mirrorCamera }))}
+            onSelectOption={handleSelectOption}
+          />
+        )}
+
+        {/* GAME OVER & PODIUM SCREEN (SOLO) */}
+        {gameState === 'gameover' && gameMode === 'solo' && (
           <GameOverModal
             stats={stats}
             totalQuestions={activeQuestions.length}
@@ -488,7 +822,44 @@ export default function App() {
           />
         )}
 
+        {/* GAME OVER & PODIUM SCREEN (MULTIPLAYER & VERSUS) */}
+        {gameState === 'gameover' && gameMode !== 'solo' && (
+          <MultiplayerPodiumModal
+            gameMode={gameMode}
+            onlinePlayers={onlineRoom?.players}
+            versusPlayers={versusPlayers}
+            isHost={onlineRoom?.hostId === myPlayerId}
+            onRestart={() => {
+              if (gameMode === 'local_versus') {
+                handleStartLocalVersus(versusPlayers[0].name, versusPlayers[1].name);
+              } else if (gameMode === 'online_multiplayer') {
+                mpSocket.send('RESTART_ROOM');
+                setIsMultiplayerModalOpen(true);
+                setGameState('start');
+              }
+            }}
+            onGoHome={() => {
+              setGameState('start');
+              setGameMode('solo');
+            }}
+          />
+        )}
+
       </main>
+
+      {/* Multiplayer Lobby Modal */}
+      <MultiplayerLobbyModal
+        isOpen={isMultiplayerModalOpen}
+        onClose={() => setIsMultiplayerModalOpen(false)}
+        onlineRoom={onlineRoom}
+        myPlayerId={myPlayerId}
+        isConnecting={isConnecting}
+        onCreateOnlineRoom={handleCreateOnlineRoom}
+        onJoinOnlineRoom={handleJoinOnlineRoom}
+        onStartOnlineGame={handleStartOnlineGame}
+        onStartLocalVersus={handleStartLocalVersus}
+        onUpdateCategory={handleUpdateCategory}
+      />
 
       {/* Settings Modal */}
       <SettingsModal

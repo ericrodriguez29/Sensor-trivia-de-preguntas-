@@ -1,3 +1,5 @@
+export type GameMode = 'solo' | 'local_versus' | 'online_multiplayer';
+
 export interface Question {
   id: string;
   category: string;
@@ -25,6 +27,7 @@ export interface BubbleState {
   yPercent: number; // Center Y (0-100)
   radiusPercent: number; // Radius in percent of container
   fillProgress: number; // 0 to 1
+  playerProgress?: { [playerId: string]: number }; // Progress by player
   motionIntensity: number; // 0 to 100
   isHovered: boolean;
   isPopped: boolean;
@@ -50,9 +53,36 @@ export interface UserStats {
   timeBonusTotal: number;
 }
 
-export interface MotionDetectionInfo {
-  activeBubbleId: number | null;
-  overallMotion: number;
-  detectedX: number;
-  detectedY: number;
+export interface VersusPlayerState {
+  id: string;
+  name: string;
+  color: string;
+  avatar: string;
+  score: number;
+  streak: number;
+  lastAnswerIndex: number | null;
+  hasAnswered: boolean;
+}
+
+export interface OnlinePlayer {
+  id: string;
+  name: string;
+  avatar: string;
+  color: string;
+  score: number;
+  streak: number;
+  isReady: boolean;
+  isHost: boolean;
+  lastAnswerIndex: number | null;
+  hasAnsweredCurrent: boolean;
+}
+
+export interface OnlineRoomState {
+  code: string;
+  hostId: string;
+  category: string;
+  state: 'lobby' | 'playing' | 'gameover';
+  currentQuestionIndex: number;
+  questionStartTime: number;
+  players: OnlinePlayer[];
 }
